@@ -25,16 +25,19 @@ class SearchBasedPlanner(ABC):
         self.open_list = heapdict()
         self.close_set = set()
     
-    def build_path(self, save_path = None):
+    def build_path(self, map_name = None):
         path = []
+        cost = 0
+        
         current_node = self.goal
-        while current_node is not None:
+        while self.parent[current_node] is not None:
             path.append(current_node)
+            cost += (current_node - self.parent[current_node]).norm() 
             current_node = self.parent[current_node]
         self.path_np = np.array([[p.x, p.y, p.z] for p in path[::-1]])
-        if save_path is not None:
-            np.save(f'./maps/{save_path}_{self.__class__.__name__}', self.path_np)
-        return self.path_np
+        if map_name is not None:
+            np.save(f'./maps/{map_name}_{self.__class__.__name__}', self.path_np)
+        return cost
 
     @abstractmethod
     def search(self):
@@ -73,9 +76,8 @@ class Astar(SearchBasedPlanner):
             cur, _ = self.open_list.popitem()
             self.close_set.add(cur)
             for child, cost in self.iter_children(cur):
-                if child in self.close_set:
-                    continue
-                if self.g[child] > self.g[cur] + cost:
+                if (child not in self.close_set) \
+                    and (self.g[child] > self.g[cur] + cost):
                     self.g[child] = self.g[cur] + cost
                     self.parent[child] = cur
                     self.open_list[child] = self.g[child]+self.heuristic(child)
@@ -159,15 +161,3 @@ class JumpPoint(Astar):
             # default case for start node
             pass
 '''
-
-import cProfile
-import pstats
-discretized_start_and_goal = {
-    "single_cube": (XYZ(23, 23, 13), XYZ(70, 70, 55)),
-    "maze": (XYZ(0, 0, 10), XYZ(120, 120, 50)),
-    "window": (XYZ(2, -49, 2), XYZ(60, 180, 30)),
-    "tower": (XYZ(25, 40, 5), XYZ(40, 25, 195)),
-    "flappy_bird": (XYZ(5, 25, 55), XYZ(190, 25, 55)),
-    "room": (XYZ(10, 50, 15), XYZ(90, 70, 15)),
-    "monza": (XYZ(5, 10, 49), XYZ(38, 10, 1))
-}

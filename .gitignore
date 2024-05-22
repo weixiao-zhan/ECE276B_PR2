@@ -1,3 +1,8 @@
 .DS_Store
 __pycache__/*
 report/*
+!report/report.tex
+!report/report.pdf
+!report/report.ipynb
+maps/*.npy
+profile_output
