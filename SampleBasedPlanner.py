@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import networkx as nx
-from sklearn.neighbors import NearestNeighbors
+from scipy.spatial import cKDTree
 from tqdm import tqdm
 import math
 
@@ -12,15 +12,16 @@ class SampleBasedPlanner(ABC):
     '''
     sample based planner abstract class
     '''
-    def __init__(self, start: XYZ, goal: XYZ, env:CollisionCheckingEnvironment, radius = None, n = 5000):
+    def __init__(self, start: XYZ, goal: XYZ, env:CollisionCheckingEnvironment, n = 5000):
         # build start and goal node
         self.start = start
         self.goal = goal
         self.env = env
         self.n = n
-        self.radius = self.opt_radius() if radius is None else radius
+        self.radius = self.opt_radius()
         self.graph = nx.Graph()
         self.found_first_path = False # ensure only first exit once
+        self.kdtree = None # for nearest neighbors
     
     def opt_radius(self):
         d = 1/3
@@ -35,23 +36,41 @@ class SampleBasedPlanner(ABC):
         if map_name is not None:
             np.save(f'./maps/{map_name}_{self.__class__.__name__}', self.path_np)
         return cost
+    
+    def build_kdtree(self):
+        points = np.array([[node.x, node.y, node.z]for node in self.graph.nodes])
+        self.kdtree = cKDTree(points)
 
     def near(self, node):
-        neighbor = []
-        for other in self.graph.nodes:
-            if 0 < (other-node).norm() < self.radius:
-                neighbor.append(other)
-        return neighbor
+        if self.kdtree is None:
+            self.build_kdtree()
+        indices = self.kdtree.query_ball_point(np.array([node.x, node.y, node.z]), self.radius, 2)
+        nodes = list(self.graph.nodes)
+        return [nodes[i] for i in indices]
 
     def nearest(self, node):
-        nearest_node = self.start
-        nearest_distance = float('inf')
-        for other in self.graph.nodes:
-            d = (other-node).norm()
-            if 0 < d < nearest_distance:
-                nearest_node = other
-                nearest_distance = d
-        return nearest_node
+        if self.kdtree is None:
+            self.build_kdtree()
+        _, index = self.kdtree.query(np.array([node.x, node.y, node.z]))
+        nodes = list(self.graph.nodes)
+        return nodes[index]
+
+    # def near(self, node):
+    #     neighbor = []
+    #     for other in self.graph.nodes:
+    #         if 0 < (other-node).norm() < self.radius:
+    #             neighbor.append(other)
+    #     return neighbor
+
+    # def nearest(self, node):
+    #     nearest_node = self.start
+    #     nearest_distance = float('inf')
+    #     for other in self.graph.nodes:
+    #         d = (other-node).norm()
+    #         if 0 < d < nearest_distance:
+    #             nearest_node = other
+    #             nearest_distance = d
+    #     return nearest_node
     
     @staticmethod
     def steer(start, goal, radius):
@@ -89,8 +108,7 @@ class SampleBasedPlanner(ABC):
             self.found_first_path = True
     
 class PRM(SampleBasedPlanner):
-    def sample(self, m = 50, 
-               first_path_exit = False, plot=True):
+    def sample(self, m = 50, plot=False):
         self.graph.add_node(self.start)
         self.graph.add_node(self.goal)
         for i in tqdm(range(self.n)):
@@ -98,76 +116,96 @@ class PRM(SampleBasedPlanner):
                 self.plot_graph()
             new_node = self.env.sample_free()
             self.graph.add_node(new_node)
+            self.kdtree = None # reset kdtree for near / nearest
             for near_node in self.near(new_node):
                 if not self.env.line_collide(new_node, near_node):
                     self.graph.add_edge(new_node, near_node, weight=(new_node-near_node).norm())
 
 class RRT(SampleBasedPlanner):
-    def __init__(self, start: XYZ, goal: XYZ, env: CollisionCheckingEnvironment, radius=None, n=5000):
-        super().__init__(start, goal, env, radius, n)
+    def __init__(self, start: XYZ, goal: XYZ, env: CollisionCheckingEnvironment, n=5000):
+        super().__init__(start, goal, env, n)
         self.graph = nx.DiGraph()
 
-    def sample(self, m = 50, step = 0.2,
-               first_path_exit = False, plot=True):
+    def sample(self, step=0.2, m = 50,
+               first_path_exit = False, plot=False):
         self.graph.add_node(self.start)
-        for i in tqdm(range(self.n)):
-            if plot and i%m == 0:
-                self.plot_graph()
-            rand_node, step = (self.env.sample_free(), step) if i % m != 0 else (self.goal, float('inf'))
-            nn_node = self.nearest(rand_node)
-            new_node = self.steer(nn_node, rand_node, step)
-            if not self.env.line_collide(nn_node, new_node):
-                self.graph.add_edge(nn_node, new_node, weight=(new_node-nn_node).norm()) # auto add the new_node
-                self.check_first_path()
-                if first_path_exit and self.found_first_path: return 
+        iteration = 0
+        with tqdm(total=self.n) as pbar:
+            while len(self.graph.nodes) <= self.n or not self.found_first_path:
+                iteration += 1
+                if plot and iteration % m == 0:
+                    self.plot_graph()
+                
+                rand_node, step = (self.env.sample_free(), step) if iteration % m != 0 else (self.goal, float('inf'))
+                nn_node = self.nearest(rand_node)
+                new_node = self.steer(nn_node, rand_node, step)
+                if not self.env.line_collide(nn_node, new_node):
+                    self.graph.add_edge(nn_node, new_node, weight=(new_node - nn_node).norm())  # auto add the new_node
+                    self.kdtree = None # reset kdtree for near / nearest
+                    pbar.update(1)
+                    self.check_first_path()
+                    if first_path_exit and self.found_first_path: return
+
+            # Ensure the progress bar completes if the while loop terminates by finding a path
+            if pbar.n < pbar.total:
+                pbar.update(pbar.total - pbar.n)
 
 class RRTstar(SampleBasedPlanner):
-    def __init__(self, start: XYZ, goal: XYZ, env: CollisionCheckingEnvironment, radius=None, n=5000):
-        super().__init__(start, goal, env, radius, n)
+    def __init__(self, start: XYZ, goal: XYZ, env: CollisionCheckingEnvironment, n=5000):
+        super().__init__(start, goal, env, n)
         self.graph = nx.DiGraph()
         self.cost = dict()
         self.cost[self.start] = 0
 
-    def sample(self, m = 50, step=0.2, 
-               first_path_exit = False, plot=True):
+    def sample(self, step=0.2, m = 50, 
+               first_path_exit = False, plot=False):
         self.graph.add_node(self.start)
-        for i in tqdm(range(self.n)):
-            if plot and i % m == 0:
-                self.plot_graph()
-            rand_node, step = (self.env.sample_free(), step) if i % m != 0 else (self.goal, float('inf'))
-            nn_node = self.nearest(rand_node)
-            new_node = self.steer(nn_node, rand_node, step)
-            
-            # get near nodes and their connective to new_node
-            # cache these results for extend and rewire step
-            near_nodes = self.near(new_node)
-            line_connectivity = [not self.env.line_collide(near_node, new_node) for near_node in near_nodes]
-            line_cost = [(near_node - new_node).norm() for near_node in near_nodes]
+        iteration = 0
+        with tqdm(total=self.n) as pbar:
+            while len(self.graph.nodes) <= self.n or not self.found_first_path:
+                iteration += 1
+                if plot and iteration % m == 0:
+                    self.plot_graph()
+                rand_node, step = (self.env.sample_free(), step) if iteration % m != 0 else (self.goal, float('inf'))
+                nn_node = self.nearest(rand_node)
+                new_node = self.steer(nn_node, rand_node, step)
+                
+                # get near nodes and their connective to new_node
+                # cache these results for extend and rewire step
+                near_nodes = self.near(new_node)
+                line_connectivity = [not self.env.line_collide(near_node, new_node) for near_node in near_nodes]
+                line_cost = [(near_node - new_node).norm() for near_node in near_nodes]
 
-            # extend on min cost edge
-            min_cost = float("inf")
-            min_cost_node = None
-            for near_node, connected, cost in zip(near_nodes, line_connectivity, line_cost):
-                if connected and self.cost[near_node] + cost < min_cost:
-                    min_cost = self.cost[near_node] + cost
-                    min_cost_node = near_node
-            if min_cost_node is not None:
-                self.graph.add_edge(min_cost_node, new_node, weight=(new_node-min_cost_node).norm())
-                self.check_first_path()
-                if first_path_exit and self.found_first_path: return 
-                self.cost[new_node] = min_cost
-                # rewire the tree
+                # extend on min cost edge
+                min_cost = float("inf")
+                min_cost_node = None
                 for near_node, connected, cost in zip(near_nodes, line_connectivity, line_cost):
-                    if connected and self.cost[new_node] + cost < self.cost[near_node]:
-                        # found a better route trough new node
-                        # remove edge to parent
-                        parents = list(self.graph.predecessors(near_node))
-                        for parent in parents:
-                            self.graph.remove_edge(parent, near_node)
-                        # connect to new node
-                        self.graph.add_edge(new_node, near_node, weight=(near_node-new_node).norm())
-                        # cascade cost reduction though tree
-                        cost_decrease = self.cost[near_node] - (self.cost[new_node] + cost)
-                        self.cost[near_node] -= cost_decrease
-                        for descendant in nx.descendants(self.graph, near_node):
-                            self.cost[descendant] -= cost_decrease
+                    if connected and self.cost[near_node] + cost < min_cost:
+                        min_cost = self.cost[near_node] + cost
+                        min_cost_node = near_node
+                if min_cost_node is not None:
+                    self.graph.add_edge(min_cost_node, new_node, weight=(new_node-min_cost_node).norm())
+                    self.kdtree = None # reset kdtree for near / nearest
+                    pbar.update(1)
+                    self.check_first_path()
+                    if first_path_exit and self.found_first_path: return
+                    self.cost[new_node] = min_cost
+
+                    # rewire the tree
+                    for near_node, connected, cost in zip(near_nodes, line_connectivity, line_cost):
+                        if connected and self.cost[new_node] + cost < self.cost[near_node]:
+                            # found a better route trough new node
+                            # remove edge to parent
+                            parents = list(self.graph.predecessors(near_node))
+                            for parent in parents:
+                                self.graph.remove_edge(parent, near_node)
+                            # connect to new node
+                            self.graph.add_edge(new_node, near_node, weight=(near_node-new_node).norm())
+                            # cascade cost reduction though tree
+                            cost_decrease = self.cost[near_node] - (self.cost[new_node] + cost)
+                            self.cost[near_node] -= cost_decrease
+                            for descendant in nx.descendants(self.graph, near_node):
+                                self.cost[descendant] -= cost_decrease
+            # Ensure the progress bar completes if the while loop terminates by finding a path
+            if pbar.n < pbar.total:
+                pbar.update(pbar.total - pbar.n)

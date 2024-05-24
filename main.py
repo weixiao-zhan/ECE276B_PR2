@@ -7,7 +7,6 @@ import cProfile
 import pstats
 
 PROFILE = False
-PLOT = True
 
 start_and_goal = {
     "single_cube": (XYZ(2.3, 2.3, 1.3), XYZ(7.0, 7.0, 5.5)),
@@ -19,29 +18,6 @@ start_and_goal = {
     "monza": (XYZ(0.5, 1.0, 4.9), XYZ(3.8, 1.0, 0.1))
 }
 
-def run_sample(sample_based_planner, map_name):
-    env = CollisionCheckingEnvironment(f'./maps/{map_name}.txt', discretize_scale=0)
-    start, goal = start_and_goal[map_name]
-    planner = sample_based_planner(start, goal, env, n = 8_000)
-
-    planner.plot_env()
-
-    profiler = cProfile.Profile()
-    if PROFILE:
-        profiler.enable()
-    planner.sample(plot=PLOT)
-    if PROFILE:
-        profiler.disable()
-        # Save profiling results to a file
-        profiler.dump_stats('profile_output')
-        p = pstats.Stats('profile_output')
-        p.sort_stats('tottime').print_stats(10)  # Sort by tottime and print top 10 functions
-
-    print("path cost =", planner.build_path(map_name))
-    if PLOT:
-        planner.plot_path()
-        plt.show(block=True)
-
 def run_search(search_based_planner, map_name, discretize_scale = 5):
     env = CollisionCheckingEnvironment(f'./maps/{map_name}.txt', discretize_scale=discretize_scale)
     start, goal = start_and_goal[map_name]
@@ -49,7 +25,7 @@ def run_search(search_based_planner, map_name, discretize_scale = 5):
     goal = (goal * discretize_scale).astype(int)
     planner = search_based_planner(start, goal, env)
 
-    planner.plot_env()
+    # planner.plot_env()
 
     profiler = cProfile.Profile()
     if PROFILE:
@@ -63,19 +39,49 @@ def run_search(search_based_planner, map_name, discretize_scale = 5):
         p.sort_stats('tottime').print_stats(10)  # Sort by tottime and print top 10 functions
     
     print("path cost = ", planner.build_path(map_name)/discretize_scale)
-    if PLOT:
-        planner.plot_path()
-        plt.show(block=True)
+    print(f"close set size: {len(planner.close_set)}, open set size: {len(planner.open_list)}")
+
+    # planner.plot_path()
+    # plt.show(block=True)
+
+
+def run_sample(sample_based_planner, map_name):
+    env = CollisionCheckingEnvironment(f'./maps/{map_name}.txt', discretize_scale=0)
+    start, goal = start_and_goal[map_name]
+    planner = sample_based_planner(start, goal, env, n=2000)
+    planner.plot_env()
+
+    profiler = cProfile.Profile()
+    if PROFILE:
+        profiler.enable()
+    planner.sample(plot=True)
+    if PROFILE:
+        profiler.disable()
+        # Save profiling results to a file
+        profiler.dump_stats('profile_output')
+        p = pstats.Stats('profile_output')
+        p.sort_stats('tottime').print_stats(10)  # Sort by tottime and print top 10 functions
+
+    print("path cost =", planner.build_path(map_name))
+    print(f"node size {len(planner.graph.nodes)}, edge size {len(planner.graph.edges)}")
+
+    planner.plot_path()
+    plt.show(block=True)
 
 if __name__ == "__main__":
-    map_name = "maze"
-    print(f"\nmap: {map_name}")
-    # print("running Astar")
-    # run_search(Astar, map_name)
-    # print("running PRM")
-    # run_sample(PRM, map_name)
-    # print("running RRT")
-    # run_sample(RRT, map_name)
-    print("running RRTstar")
-    run_sample(RRTstar, map_name)
-
+   for map_name in start_and_goal:
+        
+        # print(f"\nmap: {map_name}")
+        # print("running Astar, scale = 5")
+        # run_search(Astar, map_name, 5)
+        # print("running Astar, scale = 8")
+        # run_search(Astar, map_name, 8)
+        
+        map_name = "single_cube"
+        # print("running PRM")
+        # run_sample(PRM, map_name)
+        # print("running RRT")
+        # run_sample(RRT, map_name)
+        print("running RRTstar")
+        run_sample(RRTstar, map_name)
+        break

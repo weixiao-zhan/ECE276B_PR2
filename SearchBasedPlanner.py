@@ -25,6 +25,18 @@ class SearchBasedPlanner(ABC):
         self.open_list = heapdict()
         self.close_set = set()
     
+    def iter_children(self, node: XYZ):
+        '''
+        yield (child node, cost to child node)
+        using self.env.point_collide to ensure child node is valid
+        '''
+        for dx in [-1,0,1]:
+            for dy in [-1,0,1]:
+                for dz in [-1,0,1]:
+                    child = XYZ(node.x+dx, node.y+dy, node.z+dz)
+                    if not self.env.point_collide(child):
+                        yield (child, math.sqrt(dx**2+dy**2+dz**2))
+    
     def build_path(self, map_name = None):
         path = []
         cost = 0
@@ -42,10 +54,6 @@ class SearchBasedPlanner(ABC):
     @abstractmethod
     def search(self):
         pass
-
-    @cache
-    def heuristic(self, coord:XYZ):
-        return(coord - self.goal).norm()
     
     def plot_env(self):
         self.fig, self.ax = self.env.draw_map(self.start, self.goal)
@@ -56,18 +64,9 @@ class SearchBasedPlanner(ABC):
         self.ax.plot(self.path_np[:,0],self.path_np[:,1],self.path_np[:,2],'r-')
 
 class Astar(SearchBasedPlanner):
-    def iter_children(self, node: XYZ):
-        '''
-        yield (child node, cost to child node)
-        using self.env.point_collide to ensure child node is valid
-        '''
-        for dx in [-1,0,1]:
-            for dy in [-1,0,1]:
-                for dz in [-1,0,1]:
-                    child = XYZ(node.x+dx, node.y+dy, node.z+dz)
-                    if not self.env.point_collide(child):
-                        yield (child, math.sqrt(dx**2+dy**2+dz**2))
-
+    @cache
+    def heuristic(self, coord:XYZ):
+        return(coord - self.goal).norm()
     @time_it
     def search(self):
         self.g[self.start] = 0
