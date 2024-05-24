@@ -1,6 +1,7 @@
 .DS_Store
 __pycache__/*
 report/*
+!report/img
 !report/report.tex
 !report/report.pdf
 !report/report.ipynb
