@@ -79,4 +79,3 @@ if __name__ == "__main__":
         run_sample(RRT, map_name)
         print("running RRTstar")
         run_sample(RRTstar, map_name)
-        break

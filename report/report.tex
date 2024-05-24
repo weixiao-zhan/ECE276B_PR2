@@ -213,7 +213,7 @@ and supports:
     \item \texttt{build\_path}: Search shortest path from start to goal 
     using \texttt{networkX} build in dijkstra algorithm.
     \item \texttt{near} and \texttt{nearest}: Finds near nodes of a given node
-    using \texttt{cKDTree} from \texttt{sk-lean} library to accelerate computation.
+    using \texttt{cKDTree} from \texttt{sklean} library to accelerate computation.
     \item \texttt{steer}: Generates a point that steers from the start towards the goal by a specified distance.
 \end{itemize}
 All sample-based implementation only need to overload the \texttt{sample} method.
@@ -240,7 +240,7 @@ After rewiring, the cost reduction is cascade to all descendant of the rewired n
 
 \section{Results}
 
-Five planner are compared: A* ($\phi = 5, 8$),
+Five planner are compared: A* ($\phi = 5$), A* ($\phi = 8$),
 PRM, RRT, RRT* (first path and final path).
 For A*, two discretization scale are used and compared.
 For sample-based planner,
@@ -262,13 +262,13 @@ produce slightly shorter paths.
 
 A* and other Search-based planners are limited to 45-degree movements,
 thus, despite explored all nodes systematically, 
-their result is not the true shortest path.
+their results are not the true shortest path.
 In face, sample-based planners can sometimes produce slightly shorter path than A*.
 
 Among sample-based planners, 
 the standard RRT produces the longest paths. 
 Whereas, PRM and RRT* can find equally good paths compared to search-based planners.
-In addition, RRT* can continue to improve the path quality with more iterations and rewiring.
+In addition, RRT* can keep improving the path quality with more iterations and rewiring.
 
 \begin{figure*}[h]
     \centering
@@ -305,6 +305,10 @@ Moreover, any slightly increment in discretization scale would case the solution
 For PRM planner, the number edge stays largely the same 
 across different environments.
 
+For RRT and RRT* planner, the more complex the environment, 
+the more iteration it needs to build $N$ node graph,
+meaning each iteration has smaller probability of extending the tree.
+
 \begin{figure*}
     \centering
     \includegraphics[width=\linewidth]{img/runtime.png}
@@ -333,25 +337,26 @@ Where as PRM spend most of its time on collision checking.
 \end{figure*}
 
 \subsection{PRM vs RRT}
-Shown in  Figure \ref{fig:runtime} and \ref{fig:sol-size},
+Based on Figure \ref{fig:runtime} and \ref{fig:sol-size},
 RRT runs faster and consume fewer memory than PRM.
 However, this comes with the cost of less robust and more sensitive 
 to the environment layout.
 
 Figure \ref{fig:monza} shows the PRM and RRT on monza environment 
 after $\frac{N}{2} = 1000$ iterations.
-The PRM is already able to expand though the entire free space and connect to the goal.
+The PRM has already expand though the entire free space and connect to the goal.
 Where as the RRT is stuck behind the first wall.
 
-RRT only try to connect the nearest point.
+PRM always add the new node into graph in every iterations.
+The new node may not connect to the graph imminently, 
+but they are place holders to support future new nodes and improvements.
+
+On the other hand, RRT only try to connect the nearest point.
 Since the wall is skinny, 
 most of the nearest nodes will lay on two side of the wall.
 Their connection attempt would fail due to collision checking.
-Thus RRT is struggle to make progress in such environment construction.
+Thus RRT is struggle to make progress in such environments.
 
-On the other hand, PRM always add the new node into graph in every iterations.
-The new node may not connect to the graph imminently, 
-but they are place holders to support future new nodes and improvements.
 
 \begin{figure*}[htbp]
     \centering
@@ -396,7 +401,10 @@ tree into radial shape, representing the optimal path from start to any sampled 
     \label{fig:sc}
 \end{figure*}
 
-In summary, 
+\subsection{future work}
+To investigate the effect of different step size in RRT and RRT*.
+
+\subsection{result summary}
 A* rely on good heuristic function to work well.
 PRM is probabilistically optimal and most robust among sample-based planners. 
 but it is slow to compute and consume much memory.
